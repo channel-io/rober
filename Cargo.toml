@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "apps/rover-probe",
+    "crates/core",
+    "crates/zeroclaw_bridge",
+    "crates/windows_native",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+

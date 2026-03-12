@@ -1,0 +1,11 @@
+[package]
+name = "rover-probe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rover-core = { path = "../../crates/core" }
+rover-zeroclaw-bridge = { path = "../../crates/zeroclaw_bridge" }
+rover-windows-native = { path = "../../crates/windows_native" }
+

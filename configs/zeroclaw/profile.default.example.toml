@@ -1,0 +1,10 @@
+# Placeholder template for a default zeroclaw profile used by rover-probe.
+
+[browser]
+enabled = true
+
+[file]
+enabled = true
+
+[native]
+enabled = false

@@ -1,0 +1,11 @@
+# Placeholder template for a shared zeroclaw runtime config.
+# Keep this file decoupled from our Rust wrappers so zeroclaw upgrades can be handled independently.
+
+[runtime]
+mode = "native"
+profile = "default"
+
+[tools]
+browser = true
+file = true
+native_windows = false
