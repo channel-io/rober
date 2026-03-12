@@ -59,3 +59,35 @@ Useful flags:
 1. Ensure `zeroclaw` is available.
 2. Run `cargo test` for this workspace.
 3. Run `cargo run -p rover-probe -- doctor`.
+
+## Windows benchmark runner
+
+PowerShell에서 `LLM 없이` file/browser 제어 경로를 여러 번 돌리고, step별 지표를 남기는 스크립트:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run-benchmark.ps1
+```
+
+기본 지표:
+
+- `duration_ms`
+- `peak_working_set_mb`
+- `peak_private_mb`
+- `peak_cpu_percent`
+- `exit_code`
+- `stdout/stderr` 로그 경로
+
+옵션 예시:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run-benchmark.ps1 -Iterations 5
+powershell -ExecutionPolicy Bypass -File .\scripts\run-benchmark.ps1 -SkipBrowserScenario
+powershell -ExecutionPolicy Bypass -File .\scripts\run-benchmark.ps1 -SkipFileScenario
+```
+
+결과는 기본적으로 `target\benchmarks\<timestamp>\benchmark-results.json`에 저장됩니다.
+
+참고:
+
+- browser 시나리오는 `zeroclaw`가 브라우저 세션을 step 사이에서 유지한다는 가정을 둠
+- 측정치는 `rover-probe`와 그 step 실행 중에 직접 딸린 자식 프로세스를 기준으로 계산됨

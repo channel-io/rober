@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rover Benchmark Fixture</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 24px;
+        line-height: 1.5;
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+        max-width: 480px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+      }
+
+      input,
+      textarea,
+      button {
+        font: inherit;
+        padding: 8px 10px;
+      }
+
+      #result {
+        margin-top: 24px;
+        padding: 12px;
+        border: 1px solid #d0d7de;
+        background: #f6f8fa;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Rover Benchmark Fixture</h1>
+    <p id="intro">
+      This page exists only for deterministic browser automation benchmarks.
+    </p>
+
+    <form id="benchmark-form">
+      <label>
+        Name
+        <input id="name" name="name" type="text" />
+      </label>
+
+      <label>
+        Notes
+        <textarea id="notes" name="notes" rows="4"></textarea>
+      </label>
+
+      <button id="submit" type="button">Submit</button>
+    </form>
+
+    <div id="result">Waiting for input</div>
+
+    <script>
+      const submit = document.getElementById("submit");
+      submit.addEventListener("click", () => {
+        const name = document.getElementById("name").value;
+        const notes = document.getElementById("notes").value;
+        document.getElementById("result").textContent =
+          `Submitted:${name}|${notes}`;
+      });
+    </script>
+  </body>
+</html>
