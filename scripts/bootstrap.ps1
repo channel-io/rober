@@ -99,6 +99,36 @@ function Get-VisualStudioInstallationPath {
     return $null
 }
 
+function Get-VisualStudioDevCmdPath {
+    $installPath = Get-VisualStudioInstallationPath
+    if (-not $installPath) {
+        $vswhere = Get-VsWherePath
+        if (-not $vswhere) {
+            return $null
+        }
+
+        $installPath = & $vswhere -latest -products * -property installationPath
+        if ($LASTEXITCODE -ne 0 -or -not $installPath) {
+            return $null
+        }
+
+        $installPath = $installPath.Trim()
+    }
+
+    $candidates = @(
+        (Join-Path $installPath "Common7\Tools\LaunchDevCmd.bat"),
+        (Join-Path $installPath "Common7\Tools\VsDevCmd.bat")
+    )
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
 function Test-MsvcBuildTools {
     return (Test-CommandExists link.exe) -or (Test-CommandExists cl.exe)
 }
@@ -108,18 +138,22 @@ function Import-MsvcBuildEnvironment {
         return
     }
 
-    $installPath = Get-VisualStudioInstallationPath
-    if (-not $installPath) {
-        return
-    }
-
-    $devShell = Join-Path $installPath "Common7\Tools\Launch-VsDevShell.ps1"
-    if (-not (Test-Path $devShell)) {
+    $devCmd = Get-VisualStudioDevCmdPath
+    if (-not $devCmd) {
         return
     }
 
     Write-Step "loading Visual Studio build environment"
-    . $devShell -Arch amd64 -HostArch amd64 | Out-Null
+    $envDump = & cmd.exe /s /c "`"$devCmd`" -arch=amd64 -host_arch=amd64 >nul && set"
+    if ($LASTEXITCODE -ne 0) {
+        return
+    }
+
+    foreach ($line in $envDump) {
+        if ($line -match "^(.*?)=(.*)$") {
+            [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process")
+        }
+    }
 }
 
 function Ensure-MsvcBuildTools {
