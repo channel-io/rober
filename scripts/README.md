@@ -26,9 +26,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1 -InstallGit -In
 
 주의:
 
-- `cargo test`까지 안정적으로 돌리려면 Visual Studio Build Tools와 `Desktop development with C++` 워크로드가 필요할 수 있음
+- Windows에서 현재 Rust 타깃은 `msvc` 기준이므로, `cargo test`와 `cargo run`을 하려면 Visual Studio Build Tools와 `Desktop development with C++` 워크로드가 필요
+- 최신 스크립트는 Build Tools가 설치된 경우 Visual Studio dev shell을 자동으로 불러오려 시도
 - 위 스크립트는 기본적으로 `zeroclaw` prebuilt binary를 설치하므로, 보통은 `git` 없이도 동작
 - `-SourceBuild`를 사용할 때는 `git`이 반드시 필요
+- Build Tools 설치 후에는 PowerShell 창을 새로 열고 다시 실행하는 편이 안전
 
 Useful flags:
 

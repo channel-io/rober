@@ -30,6 +30,20 @@ function Test-CommandExists {
     return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Invoke-Checked {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Arguments
+    )
+
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "command failed ($LASTEXITCODE): $FilePath $($Arguments -join ' ')"
+    }
+}
+
 function Resolve-ZeroClawBinary {
     if ($env:ZEROCLAW_BIN) {
         if (Test-Path $env:ZEROCLAW_BIN) {
@@ -58,6 +72,74 @@ function Ensure-Winget {
     }
 }
 
+function Get-VsWherePath {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        return $vswhere
+    }
+
+    return $null
+}
+
+function Get-VisualStudioInstallationPath {
+    $vswhere = Get-VsWherePath
+    if (-not $vswhere) {
+        return $null
+    }
+
+    $path = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if ($LASTEXITCODE -ne 0) {
+        return $null
+    }
+
+    if ($path) {
+        return $path.Trim()
+    }
+
+    return $null
+}
+
+function Test-MsvcBuildTools {
+    return (Test-CommandExists link.exe) -or (Test-CommandExists cl.exe)
+}
+
+function Import-MsvcBuildEnvironment {
+    if (Test-MsvcBuildTools) {
+        return
+    }
+
+    $installPath = Get-VisualStudioInstallationPath
+    if (-not $installPath) {
+        return
+    }
+
+    $devShell = Join-Path $installPath "Common7\Tools\Launch-VsDevShell.ps1"
+    if (-not (Test-Path $devShell)) {
+        return
+    }
+
+    Write-Step "loading Visual Studio build environment"
+    . $devShell -Arch amd64 -HostArch amd64 | Out-Null
+}
+
+function Ensure-MsvcBuildTools {
+    Import-MsvcBuildEnvironment
+
+    if (Test-MsvcBuildTools) {
+        return
+    }
+
+    throw @"
+MSVC build tools were not detected.
+
+Install Visual Studio Build Tools and make sure the "Desktop development with C++" workload is selected:
+  winget install Microsoft.VisualStudio.2022.BuildTools
+
+If Build Tools are already installed, open the Visual Studio Installer and confirm the "Desktop development with C++" workload is enabled.
+After that, open a new terminal and re-run the script.
+"@
+}
+
 function Ensure-Git {
     if (Test-CommandExists git) {
         return
@@ -77,7 +159,7 @@ Or re-run this script with:
 
     Ensure-Winget
     Write-Step "installing Git via winget"
-    winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
+    Invoke-Checked winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
 
     if (-not (Test-CommandExists git)) {
         throw "Git installation finished but git is still not visible. Open a new terminal and re-run the script."
@@ -102,7 +184,7 @@ Then open a new terminal and re-run this script.
 
     Ensure-Winget
     Write-Step "installing Rust toolchain via winget"
-    winget install Rustlang.Rustup --accept-package-agreements --accept-source-agreements
+    Invoke-Checked winget install Rustlang.Rustup --accept-package-agreements --accept-source-agreements
 
     $cargoBin = Join-Path $HOME ".cargo\bin"
     if (Test-Path $cargoBin) {
@@ -151,12 +233,13 @@ function Install-ZeroClawFromSource {
     New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
 
     Write-Step "cloning zeroclaw source"
-    git clone --depth 1 https://github.com/zeroclaw-labs/zeroclaw.git $sourceDir
+    Invoke-Checked git clone --depth 1 https://github.com/zeroclaw-labs/zeroclaw.git $sourceDir
 
     Write-Step "installing zeroclaw from source"
     Push-Location $sourceDir
     try {
-        cargo install --path . --force --locked
+        Ensure-MsvcBuildTools
+        Invoke-Checked cargo install --path . --force --locked
     }
     finally {
         Pop-Location
@@ -196,20 +279,12 @@ function Run-WorkspaceTests {
     }
 
     Ensure-RustToolchain
-
-    if (-not (Test-CommandExists link.exe) -and -not (Test-CommandExists cl.exe)) {
-        Write-WarnLine @"
-MSVC build tools were not detected.
-`cargo test` may fail until Visual Studio Build Tools are installed with the "Desktop development with C++" workload.
-Official zeroclaw README command:
-  winget install Microsoft.VisualStudio.2022.BuildTools
-"@
-    }
+    Ensure-MsvcBuildTools
 
     Write-Step "running cargo test"
     Push-Location $Script:RepoRoot
     try {
-        cargo test
+        Invoke-Checked cargo test
     }
     finally {
         Pop-Location
@@ -223,11 +298,12 @@ function Run-Doctor {
     }
 
     Ensure-RustToolchain
+    Ensure-MsvcBuildTools
     Write-Step "running rover-probe doctor"
 
     Push-Location $Script:RepoRoot
     try {
-        cargo run -p rover-probe -- doctor
+        Invoke-Checked cargo run -p rover-probe -- doctor
     }
     finally {
         Pop-Location
