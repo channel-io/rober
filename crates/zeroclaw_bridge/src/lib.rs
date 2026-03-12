@@ -27,6 +27,10 @@ impl<R: ProcessRunner> ZeroClawBridge<R> {
         })
     }
 
+    pub fn tool_subcommand_supported_from_system(runner: R) -> Result<bool, ProbeError> {
+        Self::from_system(runner)?.supports_tool_subcommand()
+    }
+
     pub fn browser(&self, request: BrowserRequest) -> Result<ProbeResult, ProbeError> {
         let action_name = request.action_name().to_string();
         let args = browser_args(&request);
@@ -45,6 +49,33 @@ impl<R: ProcessRunner> ZeroClawBridge<R> {
         let latency_ms = started.elapsed().as_millis();
 
         map_command_output("zeroclaw-file", &action_name, output, latency_ms)
+    }
+
+    pub fn supports_tool_subcommand(&self) -> Result<bool, ProbeError> {
+        let output = self
+            .runner
+            .run(&self.binary_path, &["tool".into(), "--help".into()])?;
+
+        if output.exit_code == 0 {
+            return Ok(true);
+        }
+
+        if contains_unrecognized_tool_subcommand(&output.stdout)
+            || contains_unrecognized_tool_subcommand(&output.stderr)
+        {
+            return Ok(false);
+        }
+
+        Err(
+            ProbeError::new(
+                "tool_subcommand_check_failed",
+                "failed to determine zeroclaw CLI compatibility",
+            )
+            .with_details(format!(
+                "exit_code={} stdout={} stderr={}",
+                output.exit_code, output.stdout, output.stderr
+            )),
+        )
     }
 }
 
@@ -200,6 +231,11 @@ fn map_command_output(
         )
         .with_evidence(evidence),
     )
+}
+
+fn contains_unrecognized_tool_subcommand(output: &str) -> bool {
+    output.contains("unrecognized subcommand 'tool'")
+        || output.contains("unrecognized subcommand `tool`")
 }
 
 // Assumption: these argument shapes centralize our best-effort zeroclaw CLI mapping.
@@ -365,6 +401,7 @@ fn discover_binary(
 mod tests {
     use super::*;
     use std::cell::RefCell;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[derive(Default)]
     struct FakeRunner {
@@ -392,7 +429,15 @@ mod tests {
 
     #[test]
     fn env_override_wins_for_binary_discovery() {
-        let fake_binary = PathBuf::from("/tmp/zeroclaw-test-bin");
+        let unique_suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let fake_binary = env::temp_dir().join(format!(
+            "zeroclaw-test-bin-{}-{}",
+            std::process::id(),
+            unique_suffix
+        ));
         std::fs::write(&fake_binary, "stub").unwrap();
 
         let discovered = discover_binary(Some(fake_binary.clone()), &[]).unwrap();
@@ -429,5 +474,22 @@ mod tests {
 
         assert_eq!(result.adapter, "zeroclaw-browser");
         assert!(result.summary.contains("dispatched"));
+    }
+
+    #[test]
+    fn reports_missing_tool_subcommand_as_incompatible() {
+        let runner = FakeRunner::with_outputs(vec![Ok(ProcessOutput {
+            exit_code: 2,
+            stdout: String::new(),
+            stderr: "error: unrecognized subcommand 'tool'".into(),
+        })]);
+
+        let bridge = ZeroClawBridge {
+            runner,
+            binary_path: PathBuf::from("/usr/bin/zeroclaw"),
+            _config_dir: PathBuf::from("configs/zeroclaw"),
+        };
+
+        assert!(!bridge.supports_tool_subcommand().unwrap());
     }
 }

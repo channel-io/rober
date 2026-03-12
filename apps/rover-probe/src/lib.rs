@@ -1,8 +1,17 @@
+mod local_compat;
+
+use std::fs;
+use std::sync::OnceLock;
+
 use rover_core::{
     BrowserRequest, FileRequest, NativeRequest, ProbeAdapter, ProbeError, ProbeResult, RenderMode,
 };
 use rover_zeroclaw_bridge::{StdProcessRunner, ZeroClawBridge};
 use rover_windows_native::NativeAdapter;
+
+use crate::local_compat::{LocalBrowserAdapter, LocalFileAdapter};
+
+static ZEROCLAW_TOOL_SUPPORT: OnceLock<Option<bool>> = OnceLock::new();
 
 pub struct AppOutcome {
     pub exit_code: i32,
@@ -26,11 +35,35 @@ impl AppServices for RealServices {
     }
 
     fn browser(&self, request: BrowserRequest) -> Result<ProbeResult, ProbeError> {
-        ZeroClawBridge::from_system(StdProcessRunner)?.browser(request)
+        if prefer_local_compat() {
+            return LocalBrowserAdapter::default().run(request);
+        }
+
+        let primary_request = request.clone();
+        let fallback_request = request;
+        run_with_local_fallback(
+            || {
+                ZeroClawBridge::from_system(StdProcessRunner)
+                    .and_then(|bridge| bridge.browser(primary_request))
+            },
+            || LocalBrowserAdapter::default().run(fallback_request),
+        )
     }
 
     fn file(&self, request: FileRequest) -> Result<ProbeResult, ProbeError> {
-        ZeroClawBridge::from_system(StdProcessRunner)?.file(request)
+        if prefer_local_compat() {
+            return LocalFileAdapter.run(request);
+        }
+
+        let primary_request = request.clone();
+        let fallback_request = request;
+        run_with_local_fallback(
+            || {
+                ZeroClawBridge::from_system(StdProcessRunner)
+                    .and_then(|bridge| bridge.file(primary_request))
+            },
+            || LocalFileAdapter.run(fallback_request),
+        )
     }
 
     fn native(&self, request: NativeRequest) -> Result<ProbeResult, ProbeError> {
@@ -40,6 +73,21 @@ impl AppServices for RealServices {
 
 pub fn run(args: &[String]) -> AppOutcome {
     run_with_services(args, &RealServices)
+}
+
+fn run_with_local_fallback<Primary, Fallback>(
+    primary: Primary,
+    fallback: Fallback,
+) -> Result<ProbeResult, ProbeError>
+where
+    Primary: FnOnce() -> Result<ProbeResult, ProbeError>,
+    Fallback: FnOnce() -> Result<ProbeResult, ProbeError>,
+{
+    match primary() {
+        Ok(result) => Ok(result),
+        Err(error) if should_fallback_to_local_compat(&error) => fallback(),
+        Err(error) => Err(error),
+    }
 }
 
 pub fn run_with_services(args: &[String], services: &dyn AppServices) -> AppOutcome {
@@ -77,6 +125,23 @@ pub fn run_with_services(args: &[String], services: &dyn AppServices) -> AppOutc
             stderr: error.render(RenderMode::Human),
         },
     }
+}
+
+fn should_fallback_to_local_compat(error: &ProbeError) -> bool {
+    error.code == "external_command_failed"
+        && error
+            .details
+            .as_deref()
+            .is_some_and(|details| details.contains("unrecognized subcommand 'tool'"))
+}
+
+fn prefer_local_compat() -> bool {
+    matches!(
+        *ZEROCLAW_TOOL_SUPPORT.get_or_init(|| {
+            ZeroClawBridge::tool_subcommand_supported_from_system(StdProcessRunner).ok()
+        }),
+        Some(false)
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,7 +203,7 @@ fn parse_browser(args: &[String]) -> Result<BrowserRequest, ProbeError> {
         }),
         "fill" => Ok(BrowserRequest::Fill {
             target: required_option(args, "--target")?,
-            value: required_option(args, "--value")?,
+            value: browser_fill_value(args)?,
         }),
         "download" => Ok(BrowserRequest::Download {
             url: required_option(args, "--url")?,
@@ -231,6 +296,11 @@ fn usage_error(message: &str) -> ProbeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        cell::Cell,
+        env,
+        time::{SystemTime, UNIX_EPOCH},
+    };
     use rover_core::{OutputValue, Status};
 
     struct FakeServices;
@@ -295,6 +365,32 @@ mod tests {
     }
 
     #[test]
+    fn parses_browser_fill_from_value_file() {
+        let payload_path = unique_temp_file("fill-value");
+        fs::write(&payload_path, "payload from file").unwrap();
+
+        let parsed = parse_cli(&[
+            "browser".into(),
+            "fill".into(),
+            "--target".into(),
+            "#notes".into(),
+            "--value-file".into(),
+            payload_path.display().to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            parsed.command,
+            Command::Browser(BrowserRequest::Fill {
+                target: "#notes".into(),
+                value: "payload from file".into(),
+            })
+        );
+
+        fs::remove_file(payload_path).unwrap();
+    }
+
+    #[test]
     fn dispatches_browser_command() {
         let outcome = run_with_services(
             &[
@@ -326,5 +422,96 @@ mod tests {
         assert_eq!(outcome.exit_code, 2);
         assert!(outcome.stdout.contains("\"status\":\"not_implemented\""));
         assert!(outcome.stderr.is_empty());
+    }
+
+    #[test]
+    fn falls_back_to_local_adapter_only_for_incompatible_zeroclaw_errors() {
+        let fallback_called = Cell::new(false);
+
+        let result = run_with_local_fallback(
+            || {
+                Err(
+                    ProbeError::new(
+                        "external_command_failed",
+                        "zeroclaw command shape was rejected",
+                    )
+                    .with_details("stderr: error: unrecognized subcommand 'tool'"),
+                )
+            },
+            || {
+                fallback_called.set(true);
+                Ok(ProbeResult::success(
+                    "local-browser",
+                    "open",
+                    1,
+                    "compat adapter handled request",
+                ))
+            },
+        )
+        .unwrap();
+
+        assert!(fallback_called.get());
+        assert_eq!(result.adapter, "local-browser");
+    }
+
+    #[test]
+    fn preserves_primary_error_when_fallback_condition_is_not_met() {
+        let fallback_called = Cell::new(false);
+
+        let error = run_with_local_fallback(
+            || {
+                Err(
+                    ProbeError::new(
+                        "process_spawn_failed",
+                        "zeroclaw process could not be started",
+                    )
+                    .with_details("The system cannot find the file specified."),
+                )
+            },
+            || {
+                fallback_called.set(true);
+                Ok(ProbeResult::success(
+                    "local-file",
+                    "stat",
+                    1,
+                    "compat adapter handled request",
+                ))
+            },
+        )
+        .unwrap_err();
+
+        assert!(!fallback_called.get());
+        assert_eq!(error.code, "process_spawn_failed");
+    }
+
+    fn unique_temp_file(prefix: &str) -> std::path::PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        env::temp_dir().join(format!(
+            "rover-probe-{prefix}-{}-{}.txt",
+            std::process::id(),
+            suffix
+        ))
+    }
+}
+
+fn browser_fill_value(args: &[String]) -> Result<String, ProbeError> {
+    let inline_value = optional_option(args, "--value");
+    let value_file = optional_option(args, "--value-file");
+
+    match (inline_value, value_file) {
+        (Some(_), Some(_)) => Err(usage_error(
+            "browser fill accepts either `--value` or `--value-file`, but not both",
+        )),
+        (Some(value), None) => Ok(value),
+        (None, Some(path)) => fs::read_to_string(&path).map_err(|error| {
+            usage_error(&format!("failed to read browser fill payload from `{path}`"))
+                .with_details(error.to_string())
+        }),
+        (None, None) => Err(usage_error(
+            "missing required option `--value` or `--value-file`",
+        )),
     }
 }
