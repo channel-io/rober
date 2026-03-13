@@ -65,12 +65,15 @@ impl ChannelTalkChannel {
             .get("type")
             .and_then(|v| v.as_str())
             .unwrap_or("");
+        tracing::info!("[channeltalk] webhook received — type: {msg_type}");
+
         if msg_type != "message" {
-            tracing::debug!("Channel Talk: skipping non-message type: {msg_type}");
+            tracing::info!("[channeltalk] SKIP: type is '{msg_type}', not 'message'");
             return messages;
         }
 
         let Some(entity) = payload.get("entity") else {
+            tracing::info!("[channeltalk] SKIP: no 'entity' field in payload");
             return messages;
         };
 
@@ -78,8 +81,10 @@ impl ChannelTalkChannel {
             .get("chatType")
             .and_then(|v| v.as_str())
             .unwrap_or("");
+        tracing::info!("[channeltalk] chatType: {chat_type}");
+
         if chat_type != "group" {
-            tracing::debug!("Channel Talk: skipping non-group chat: {chat_type}");
+            tracing::info!("[channeltalk] SKIP: chatType is '{chat_type}', not 'group'");
             return messages;
         }
 
@@ -88,8 +93,11 @@ impl ChannelTalkChannel {
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let trimmed = plain_text.trim();
-        if !trimmed.to_lowercase().starts_with("@rover") {
-            tracing::debug!("Channel Talk: message does not start with @rover");
+        let has_mention = trimmed.to_lowercase().starts_with("@rover");
+        tracing::info!("[channeltalk] plainText: \"{trimmed}\" | @rover mention: {has_mention}");
+
+        if !has_mention {
+            tracing::info!("[channeltalk] SKIP: message does not start with @rover");
             return messages;
         }
 
@@ -106,9 +114,10 @@ impl ChannelTalkChannel {
                     .and_then(|v| v.as_str())
             })
             .unwrap_or("unknown");
+        tracing::info!("[channeltalk] sender: {sender_name}");
 
         if self.is_sender_ignored(sender_name) {
-            tracing::debug!("Channel Talk: ignoring sender: {sender_name}");
+            tracing::info!("[channeltalk] SKIP: sender '{sender_name}' is in ignore list");
             return messages;
         }
 
@@ -125,6 +134,8 @@ impl ChannelTalkChannel {
             .to_string();
 
         let timestamp = Self::parse_timestamp(entity.get("createdAt"));
+
+        tracing::info!("[channeltalk] PASS: msg_id={message_id}, chat_id={chat_id}, sender={sender_name} → processing");
 
         messages.push(ChannelMessage {
             id: message_id,

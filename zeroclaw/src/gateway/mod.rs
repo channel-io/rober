@@ -1472,12 +1472,13 @@ async fn handle_channeltalk_webhook(
 
     let messages = channeltalk.parse_webhook_payload(&payload);
     if messages.is_empty() {
+        tracing::info!("[channeltalk] no messages after filtering → returning ok");
         return (StatusCode::OK, Json(serde_json::json!({"status": "ok"})));
     }
 
     for msg in &messages {
         tracing::info!(
-            "Channel Talk message from {}: {}",
+            "[channeltalk] processing message from {}: {}",
             msg.sender,
             truncate_with_ellipsis(&msg.content, 50)
         );
@@ -1490,17 +1491,20 @@ async fn handle_channeltalk_webhook(
                 .await;
         }
 
+        tracing::info!("[channeltalk] calling LLM...");
         match run_gateway_chat_with_tools(&state, &msg.content).await {
             Ok(response) => {
+                tracing::info!("[channeltalk] LLM response received ({} chars), sending reply to chat_id={}", response.len(), msg.reply_target);
                 if let Err(e) = channeltalk
                     .send(&SendMessage::new(response, &msg.reply_target))
                     .await
                 {
-                    tracing::error!("Failed to send Channel Talk reply: {e}");
+                    tracing::error!("[channeltalk] failed to send reply: {e}");
                 }
+                tracing::info!("[channeltalk] reply sent successfully");
             }
             Err(e) => {
-                tracing::error!("LLM error for Channel Talk message: {e:#}");
+                tracing::error!("[channeltalk] LLM error: {e:#}");
                 let _ = channeltalk
                     .send(&SendMessage::new(
                         "Sorry, I couldn't process your message right now.",
