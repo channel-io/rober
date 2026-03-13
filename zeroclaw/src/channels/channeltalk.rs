@@ -135,7 +135,14 @@ impl ChannelTalkChannel {
 
         let timestamp = Self::parse_timestamp(entity.get("createdAt"));
 
-        tracing::info!("[channeltalk] PASS: msg_id={message_id}, chat_id={chat_id}, sender={sender_name} → processing");
+        // Use rootMessageId for thread replies; fall back to current message id (new thread).
+        let root_message_id = entity
+            .get("rootMessageId")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&message_id)
+            .to_string();
+
+        tracing::info!("[channeltalk] PASS: msg_id={message_id}, chat_id={chat_id}, sender={sender_name}, thread={root_message_id} → processing");
 
         messages.push(ChannelMessage {
             id: message_id,
@@ -144,13 +151,18 @@ impl ChannelTalkChannel {
             content: plain_text.to_string(),
             channel: "channeltalk".to_string(),
             timestamp,
-            thread_ts: None,
+            thread_ts: Some(root_message_id),
         });
 
         messages
     }
 
-    async fn send_to_chat(&self, chat_id: &str, content: &str) -> anyhow::Result<()> {
+    async fn send_to_chat(
+        &self,
+        chat_id: &str,
+        content: &str,
+        thread_ts: Option<&str>,
+    ) -> anyhow::Result<()> {
         let body = serde_json::json!({
             "blocks": [
                 {
@@ -160,11 +172,16 @@ impl ChannelTalkChannel {
             ]
         });
 
+        let url = match thread_ts {
+            Some(message_id) => format!(
+                "{CHANNELTALK_API_BASE}/v5/groups/{chat_id}/threads/{message_id}/messages"
+            ),
+            None => format!("{CHANNELTALK_API_BASE}/v5/groups/{chat_id}/messages"),
+        };
+
         let response = self
             .client
-            .post(format!(
-                "{CHANNELTALK_API_BASE}/v5/groups/{chat_id}/messages"
-            ))
+            .post(url)
             .header("x-access-key", &self.access_key)
             .header("x-access-secret", &self.access_secret)
             .json(&body)
@@ -189,7 +206,7 @@ impl Channel for ChannelTalkChannel {
     }
 
     async fn send(&self, message: &SendMessage) -> anyhow::Result<()> {
-        self.send_to_chat(&message.recipient, &message.content)
+        self.send_to_chat(&message.recipient, &message.content, message.thread_ts.as_deref())
             .await
     }
 
@@ -223,17 +240,30 @@ mod tests {
     }
 
     fn make_payload(chat_type: &str, plain_text: &str, sender_name: &str) -> serde_json::Value {
+        make_payload_with_root(chat_type, plain_text, sender_name, Some("root-msg-1"))
+    }
+
+    fn make_payload_with_root(
+        chat_type: &str,
+        plain_text: &str,
+        sender_name: &str,
+        root_message_id: Option<&str>,
+    ) -> serde_json::Value {
+        let mut entity = serde_json::json!({
+            "id": "msg-1",
+            "chatType": chat_type,
+            "chatId": "chat-100",
+            "personId": "person-1",
+            "plainText": plain_text,
+            "createdAt": 1700000000000_u64
+        });
+        if let Some(root_id) = root_message_id {
+            entity["rootMessageId"] = serde_json::Value::String(root_id.to_string());
+        }
         serde_json::json!({
             "type": "message",
             "event": "message.created",
-            "entity": {
-                "id": "msg-1",
-                "chatType": chat_type,
-                "chatId": "chat-100",
-                "personId": "person-1",
-                "plainText": plain_text,
-                "createdAt": 1700000000000_u64
-            },
+            "entity": entity,
             "refers": {
                 "manager": {
                     "name": sender_name
@@ -335,6 +365,24 @@ mod tests {
             }
         });
         assert!(channel.parse_webhook_payload(&payload).is_empty());
+    }
+
+    #[test]
+    fn thread_ts_uses_root_message_id() {
+        let channel = make_channel();
+        let payload = make_payload("group", "@rover hi", "Alice");
+        let messages = channel.parse_webhook_payload(&payload);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].thread_ts.as_deref(), Some("root-msg-1"));
+    }
+
+    #[test]
+    fn thread_ts_falls_back_to_message_id_without_root() {
+        let channel = make_channel();
+        let payload = make_payload_with_root("group", "@rover hi", "Alice", None);
+        let messages = channel.parse_webhook_payload(&payload);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].thread_ts.as_deref(), Some("msg-1"));
     }
 
     #[test]

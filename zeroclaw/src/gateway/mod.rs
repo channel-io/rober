@@ -1496,7 +1496,7 @@ async fn handle_channeltalk_webhook(
             Ok(response) => {
                 tracing::info!("[channeltalk] LLM response received ({} chars), sending reply to chat_id={}", response.len(), msg.reply_target);
                 if let Err(e) = channeltalk
-                    .send(&SendMessage::new(response, &msg.reply_target))
+                    .send(&SendMessage::new(response, &msg.reply_target).in_thread(msg.thread_ts.clone()))
                     .await
                 {
                     tracing::error!("[channeltalk] failed to send reply: {e}");
@@ -1509,7 +1509,7 @@ async fn handle_channeltalk_webhook(
                     .send(&SendMessage::new(
                         "Sorry, I couldn't process your message right now.",
                         &msg.reply_target,
-                    ))
+                    ).in_thread(msg.thread_ts.clone()))
                     .await;
             }
         }

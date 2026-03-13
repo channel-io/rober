@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./zeroclaw/target/release/zeroclaw.exe gateway:*)"
+      "Bash(./zeroclaw/target/release/zeroclaw.exe gateway:*)",
+      "Bash(find /Users/polar/Documents/dev/rover -name \"*channeltalk*\" -o -name \"*channel-talk*\" 2>/dev/null | grep -v node_modules | grep -v \".git\")",
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)"
     ]
   }
 }
