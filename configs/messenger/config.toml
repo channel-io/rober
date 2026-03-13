@@ -1,0 +1,11 @@
+[server]
+host = "127.0.0.1"
+port = 8090
+
+[channeltalk]
+access_token = ""
+webhook_secret = ""
+
+[filter]
+channel_ids = []        # whitelist — empty means accept all
+ignore_senders = []     # exclude bot's own messages

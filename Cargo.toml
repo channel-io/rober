@@ -1,9 +1,11 @@
 [workspace]
 members = [
     "apps/rover-probe",
+    "apps/messenger-server",
     "crates/core",
     "crates/zeroclaw_bridge",
     "crates/windows_native",
+    "crates/messenger",
 ]
 resolver = "2"
 
@@ -11,4 +13,11 @@ resolver = "2"
 edition = "2024"
 license = "MIT"
 version = "0.1.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.26"
+axum = { version = "0.8", features = ["ws"] }
 

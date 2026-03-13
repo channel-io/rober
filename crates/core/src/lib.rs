@@ -348,6 +348,23 @@ impl NativeRequest {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MessengerRequest {
+    Send { channel_id: String, message: String },
+    Reply { channel_id: String, parent_message_id: String, message: String },
+    Read { channel_id: String, limit: Option<u32> },
+}
+
+impl MessengerRequest {
+    pub fn action_name(&self) -> &'static str {
+        match self {
+            MessengerRequest::Send { .. } => "send",
+            MessengerRequest::Reply { .. } => "reply",
+            MessengerRequest::Read { .. } => "read",
+        }
+    }
+}
+
 fn escape_json(input: &str) -> String {
     let mut output = String::new();
     for ch in input.chars() {

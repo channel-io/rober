@@ -4,7 +4,8 @@ use std::fs;
 use std::sync::OnceLock;
 
 use rover_core::{
-    BrowserRequest, FileRequest, NativeRequest, ProbeAdapter, ProbeError, ProbeResult, RenderMode,
+    BrowserRequest, FileRequest, MessengerRequest, NativeRequest, ProbeAdapter, ProbeError,
+    ProbeResult, RenderMode,
 };
 use rover_zeroclaw_bridge::{StdProcessRunner, ZeroClawBridge};
 use rover_windows_native::NativeAdapter;
@@ -24,6 +25,7 @@ pub trait AppServices {
     fn browser(&self, request: BrowserRequest) -> Result<ProbeResult, ProbeError>;
     fn file(&self, request: FileRequest) -> Result<ProbeResult, ProbeError>;
     fn native(&self, request: NativeRequest) -> Result<ProbeResult, ProbeError>;
+    fn messenger(&self, request: MessengerRequest) -> Result<ProbeResult, ProbeError>;
 }
 
 #[derive(Default)]
@@ -69,6 +71,13 @@ impl AppServices for RealServices {
     fn native(&self, request: NativeRequest) -> Result<ProbeResult, ProbeError> {
         NativeAdapter::default().run(request)
     }
+
+    fn messenger(&self, request: MessengerRequest) -> Result<ProbeResult, ProbeError> {
+        let ws_url = std::env::var("MESSENGER_WS_URL")
+            .unwrap_or_else(|_| "ws://127.0.0.1:8090/ws".to_string());
+        let adapter = rover_messenger::MessengerAdapter::new(ws_url)?;
+        adapter.run(request)
+    }
 }
 
 pub fn run(args: &[String]) -> AppOutcome {
@@ -104,6 +113,7 @@ pub fn run_with_services(args: &[String], services: &dyn AppServices) -> AppOutc
                 Command::Browser(request) => services.browser(request),
                 Command::File(request) => services.file(request),
                 Command::Native(request) => services.native(request),
+                Command::Messenger(request) => services.messenger(request),
             };
 
             match result {
@@ -156,6 +166,7 @@ enum Command {
     Browser(BrowserRequest),
     File(FileRequest),
     Native(NativeRequest),
+    Messenger(MessengerRequest),
 }
 
 fn parse_cli(args: &[String]) -> Result<Invocation, ProbeError> {
@@ -176,9 +187,10 @@ fn parse_cli(args: &[String]) -> Result<Invocation, ProbeError> {
         "browser" => Command::Browser(parse_browser(&rest[1..])?),
         "file" => Command::File(parse_file(&rest[1..])?),
         "native" => Command::Native(parse_native(&rest[1..])?),
+        "messenger" => Command::Messenger(parse_messenger(&rest[1..])?),
         other => {
             return Err(usage_error(&format!(
-                "unknown subcommand `{other}`; expected doctor, browser, file, or native"
+                "unknown subcommand `{other}`; expected doctor, browser, file, native, or messenger"
             )));
         }
     };
@@ -267,6 +279,31 @@ fn parse_native(args: &[String]) -> Result<NativeRequest, ProbeError> {
     }
 }
 
+fn parse_messenger(args: &[String]) -> Result<MessengerRequest, ProbeError> {
+    let Some(action) = args.first().map(String::as_str) else {
+        return Err(usage_error("missing messenger action"));
+    };
+
+    match action {
+        "send" => Ok(MessengerRequest::Send {
+            channel_id: required_option(args, "--channel-id")?,
+            message: required_option(args, "--message")?,
+        }),
+        "reply" => Ok(MessengerRequest::Reply {
+            channel_id: required_option(args, "--channel-id")?,
+            parent_message_id: required_option(args, "--parent-id")?,
+            message: required_option(args, "--message")?,
+        }),
+        "read" => Ok(MessengerRequest::Read {
+            channel_id: required_option(args, "--channel-id")?,
+            limit: optional_option(args, "--limit").and_then(|v| v.parse().ok()),
+        }),
+        other => Err(usage_error(&format!(
+            "unknown messenger action `{other}`; expected send, reply, or read"
+        ))),
+    }
+}
+
 fn remove_flag(args: &mut Vec<String>, flag: &str) -> bool {
     if let Some(index) = args.iter().position(|arg| arg == flag) {
         args.remove(index);
@@ -289,7 +326,7 @@ fn optional_option(args: &[String], key: &str) -> Option<String> {
 fn usage_error(message: &str) -> ProbeError {
     ProbeError::usage(
         message,
-        "usage: rover-probe [--json] <doctor|browser|file|native> ...",
+        "usage: rover-probe [--json] <doctor|browser|file|native|messenger> ...",
     )
 }
 
@@ -330,6 +367,15 @@ mod tests {
                 "native",
                 request.action_name(),
                 "native not implemented",
+            ))
+        }
+
+        fn messenger(&self, request: MessengerRequest) -> Result<ProbeResult, ProbeError> {
+            Ok(ProbeResult::success(
+                "messenger",
+                request.action_name(),
+                5,
+                "messenger dispatched",
             ))
         }
     }
