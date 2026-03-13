@@ -1,6 +1,6 @@
 param(
     [int]$Port = 8090,
-    [string]$Config = ""
+    [string]$Config = "configs\zeroclaw"
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,9 +42,7 @@ Pop-Location
 # --- Start zeroclaw gateway ---
 Write-Host "Starting zeroclaw gateway on port $Port..." -ForegroundColor Cyan
 $zcArgs = "gateway --host 127.0.0.1 --port $Port"
-if ($Config -ne "") {
-    $env:ZEROCLAW_WORKSPACE = $Config
-}
+$env:ZEROCLAW_WORKSPACE = (Resolve-Path $Config).Path
 $gateway = Start-Process -FilePath ".\zeroclaw\target\release\zeroclaw.exe" `
     -ArgumentList $zcArgs -PassThru -NoNewWindow
 
