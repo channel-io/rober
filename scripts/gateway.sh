@@ -17,7 +17,7 @@ echo "Building zeroclaw..."
 (cd zeroclaw && cargo build --release) 2>&1
 
 echo "Starting zeroclaw gateway on port $PORT..."
-./zeroclaw/target/release/zeroclaw gateway --host 127.0.0.1 --port "$PORT" &
+./zeroclaw/target/release/zeroclaw gateway start --host 127.0.0.1 --port "$PORT" &
 GATEWAY_PID=$!
 
 sleep 2
