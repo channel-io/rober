@@ -8,5 +8,4 @@ license.workspace = true
 rover-core = { path = "../../crates/core" }
 rover-zeroclaw-bridge = { path = "../../crates/zeroclaw_bridge" }
 rover-windows-native = { path = "../../crates/windows_native" }
-rover-messenger = { path = "../../crates/messenger" }
 
