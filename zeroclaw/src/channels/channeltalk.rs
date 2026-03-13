@@ -152,16 +152,18 @@ impl ChannelTalkChannel {
 
     async fn send_to_chat(&self, chat_id: &str, content: &str) -> anyhow::Result<()> {
         let body = serde_json::json!({
-            "channelId": chat_id,
-            "body": {
-                "text": content
-            }
+            "blocks": [
+                {
+                    "type": "text",
+                    "value": content
+                }
+            ]
         });
 
         let response = self
             .client
             .post(format!(
-                "{CHANNELTALK_API_BASE}/v5/user-chats/{chat_id}/messages"
+                "{CHANNELTALK_API_BASE}/v5/groups/{chat_id}/messages"
             ))
             .header("x-access-key", &self.access_key)
             .header("x-access-secret", &self.access_secret)
