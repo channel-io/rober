@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./zeroclaw/target/release/zeroclaw.exe gateway:*)"
+    ]
+  }
+}

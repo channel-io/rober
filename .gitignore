@@ -1,3 +1,4 @@
 dist/
 target/
 configs/zeroclaw/config.toml
+configs/zeroclaw/workspace/
