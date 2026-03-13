@@ -2,7 +2,8 @@
 set -euo pipefail
 
 PORT="${GATEWAY_PORT:-8090}"
-CONFIG="${GATEWAY_CONFIG:-configs/gateway/config.toml}"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
 
 cleanup() {
     echo ""
@@ -12,14 +13,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Building gateway..."
-cargo build --release -p rover-gateway 2>&1
+echo "Building zeroclaw..."
+(cd zeroclaw && cargo build --release) 2>&1
 
-echo "Starting gateway on port $PORT..."
-GATEWAY_CONFIG="$CONFIG" ./target/release/rover-gateway &
+echo "Starting zeroclaw gateway on port $PORT..."
+./zeroclaw/target/release/zeroclaw gateway --host 127.0.0.1 --port "$PORT" &
 GATEWAY_PID=$!
 
-sleep 1
+sleep 2
 if ! kill -0 $GATEWAY_PID 2>/dev/null; then
     echo "Gateway failed to start"
     exit 1

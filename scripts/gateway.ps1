@@ -1,9 +1,13 @@
 param(
     [int]$Port = 8090,
-    [string]$Config = "configs/gateway/config.toml"
+    [string]$Config = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- repo 루트 기준으로 경로 설정 ---
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+Push-Location $RepoRoot
 
 # --- cloudflared 설치 확인 / 자동 설치 ---
 if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
@@ -22,25 +26,32 @@ if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
     $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
     if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
         Write-Host "cloudflared still not found in PATH. Please restart terminal or add it to PATH manually." -ForegroundColor Red
+        Pop-Location
         exit 1
     }
 }
 Write-Host "cloudflared: $(cloudflared --version)" -ForegroundColor Green
 
-# --- Build ---
-Write-Host "Building gateway..." -ForegroundColor Cyan
-cargo build --release -p rover-gateway
-if ($LASTEXITCODE -ne 0) { exit 1 }
+# --- Build zeroclaw ---
+Write-Host "Building zeroclaw..." -ForegroundColor Cyan
+Push-Location "zeroclaw"
+cargo build --release
+if ($LASTEXITCODE -ne 0) { Pop-Location; Pop-Location; exit 1 }
+Pop-Location
 
-# --- Start gateway ---
-Write-Host "Starting gateway on port $Port..." -ForegroundColor Cyan
-$env:GATEWAY_CONFIG = $Config
-$gateway = Start-Process -FilePath ".\target\release\rover-gateway.exe" `
-    -PassThru -NoNewWindow
+# --- Start zeroclaw gateway ---
+Write-Host "Starting zeroclaw gateway on port $Port..." -ForegroundColor Cyan
+$zcArgs = "gateway --host 127.0.0.1 --port $Port"
+if ($Config -ne "") {
+    $env:ZEROCLAW_WORKSPACE = $Config
+}
+$gateway = Start-Process -FilePath ".\zeroclaw\target\release\zeroclaw.exe" `
+    -ArgumentList $zcArgs -PassThru -NoNewWindow
 
-Start-Sleep -Seconds 1
+Start-Sleep -Seconds 2
 if ($gateway.HasExited) {
     Write-Host "Gateway failed to start" -ForegroundColor Red
+    Pop-Location
     exit 1
 }
 
@@ -63,4 +74,5 @@ try {
     Write-Host "`nShutting down..." -ForegroundColor Cyan
     if (-not $gateway.HasExited) { Stop-Process -Id $gateway.Id -Force -ErrorAction SilentlyContinue }
     if (-not $tunnel.HasExited) { Stop-Process -Id $tunnel.Id -Force -ErrorAction SilentlyContinue }
+    Pop-Location
 }

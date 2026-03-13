@@ -1,11 +1,9 @@
 [workspace]
 members = [
     "apps/rover-probe",
-    "apps/gateway",
     "crates/core",
     "crates/zeroclaw_bridge",
     "crates/windows_native",
-    "crates/channel",
 ]
 resolver = "2"
 
